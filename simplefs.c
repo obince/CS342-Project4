@@ -164,7 +164,7 @@ int sfs_create(char *filename)
 {
     void* dir_buffer = malloc(sizeof(char) * BLOCKSIZE);
     void* fcb_buffer = malloc(sizeof(char) * BLOCKSIZE);
-    struct DirectoryEntry* cur_entry;
+    struct DirectoryEntry* cur_dir_entry;
     struct FCB* cur_fcb;
     bool found = false;
     int i, j, k;
@@ -172,10 +172,10 @@ int sfs_create(char *filename)
     for(i = 5; i <= 8; ++i){
         read_block(dir_buffer, i);
         for(j = 0; j < 32; ++j){
-            cur_entry = ((struct DirectoryEntry*) dir_buffer)[j];
-            if( cur_entry->used == NOTUSED) {
-                cur_entry->file_name = filename;
-                cur_entry->used = USED;
+            cur_dir_entry = ((struct DirectoryEntry*) dir_buffer)[j];
+            if( cur_dir_entry->used == NOTUSED) {
+                cur_dir_entry->file_name = filename;
+                cur_dir_entry->used = USED;
                 found = true;
                 break;
             }
@@ -196,7 +196,8 @@ int sfs_create(char *filename)
             cur_fcb = ((struct FCB*) fcb_buffer)[m];
             if( cur_fcb->used == NOTUSED){
                 cur_fcb->used = USED;
-
+                cur_fcb->index_table_addr = find_available_block();
+                cur_dir_entry->FCB_index = cur_fcb->FCB_index;
             }
         }
     }
@@ -206,19 +207,52 @@ int sfs_create(char *filename)
 
 int find_available_block(){
     uint8_t* bitmap_buf = (uint8_t*) malloc(BLOCKSIZE);
-    int i;
+    int i, j, empty_block;
+    bool found = false;
     for(i = 1; i <= 4; ++i){
         read_block(bitmap_buf, i);
-        for( int j = 0; j < BLOCKSIZE; ++j){
+        for( j = 0; j < BLOCKSIZE; ++j){
             uint8_t cur_byte = bitmap_buf[j];
             if (cur_byte != 0xFF){
+                empty_block = find_zero_byte(cur_byte);
+                found = true;
 
+                cur_byte = cur_byte | (1 << (7 - empty_block));
+                bitmap_buf[j] = cur_byte;
+                write_block(bitmap_buf, i);
+                break;
             }
         }
+        if(found){
+            break;
+        }
     }
+
+    if(!found){
+        return -1;
+    }
+
+    int available_block_idx = ((i - 1) * BLOCKSIZE) + (8 * j) + empty_block;
+    return available_block_idx;
 }
 
-int find_zero_
+int find_zero_byte(uint8_t bitmap_byte){
+    bool zeros[8];
+    for(int i = 0; i < 8; ++i){
+        if(bitmap_byte % 2 == 0){
+            zeros[i] = true;
+        } else {
+            zeros[i] = false;
+        }
+        bitmap_byte = bitmap_byte >> 1;
+    }
+    for(int i = 7; i >= 0; --i){
+        if( zeros[i]){
+            return (7 - i);
+        }
+    }
+    return -1;
+}
 
 int sfs_open(char *file, int mode)
 {
