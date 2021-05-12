@@ -7,13 +7,13 @@
 int main(int argc, char **argv)
 {
     int ret;
-    int fd1, fd2, fd; 
+    int fd1, fd2, fd;
     int i;
-    char c; 
+    char c;
     char buffer[1024];
     char buffer2[8] = {50, 50, 50, 50, 50, 50, 50, 50};
     int size;
-    char vdiskname[200]; 
+    char vdiskname[200];
 
     printf ("started\n");
 
@@ -21,15 +21,15 @@ int main(int argc, char **argv)
         printf ("usage: app  <vdiskname>\n");
         exit(0);
     }
-    strcpy (vdiskname, argv[1]); 
-    
+    strcpy (vdiskname, argv[1]);
+
     ret = sfs_mount (vdiskname);
     if (ret != 0) {
         printf ("could not mount \n");
         exit (1);
     }
 
-    printf ("creating files\n"); 
+    printf ("creating files\n");
     sfs_create ("file1.bin");
     sfs_create ("file2.bin");
     sfs_create ("file3.bin");
@@ -48,7 +48,7 @@ int main(int argc, char **argv)
         buffer[3] = (char) 68;
         sfs_append(fd2, (void *) buffer, 4);
     }
-    
+
     sfs_close(fd1);
     sfs_close(fd2);
 

@@ -7,6 +7,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <stdint.h>
+#include <string.h>
 #include "simplefs.h"
 
 #define USED 1
@@ -14,6 +15,14 @@
 #define FCB_COUNT 128
 #define FILENAME 110
 #define DIR_ENTRY_SIZE 128
+#define FCB_SIZE 128
+
+/**
+    FUNCTION DECLARATIONS
+**/
+int find_zero_byte(uint8_t bitmap_byte);
+int find_available_block();
+
 // Global Variables =======================================
 int vdisk_fd; // Global virtual disk file descriptor. Global within the library.
               // Will be assigned with the vsfs_mount call.
@@ -24,7 +33,8 @@ struct OpenFile {
     char file_name[FILENAME];
     int used;
     int mode;
-    int fcb_num;
+    int FCB_index;
+    int index_table_addr;
     int read_index;
 };
 
@@ -44,7 +54,8 @@ struct FCB {
     int FCB_index;
     int used;
     int index_table_addr;
-    char dummy[BLOCKSIZE - (sizeof(int) * 3)];
+    int file_size;
+    char dummy[FCB_SIZE - (sizeof(int) * 4)];
 };
 
 struct OpenFile open_files[16];
@@ -132,6 +143,18 @@ int create_format_vdisk (char *vdiskname, unsigned int m)
         return -1;
     }
 
+    struct FCB* cur_FCB = (struct FCB*) malloc(sizeof(struct FCB) * 32);
+
+    for(int i = 9; i <= 12; i++) {
+        read_block(cur_FCB, i);
+        for( int j = 0; j < 32; j++) {
+            cur_FCB[j].FCB_index = ((i-9) * 32) + j;
+        }
+        write_block(cur_FCB, i);
+    }
+
+    free(cur_FCB);
+
     sfs_umount();
 
     free(sb);
@@ -147,6 +170,10 @@ int sfs_mount (char *vdiskname)
     // way make it ready to be used for other operations.
     // vdisk_fd is global; hence other function can use it.
     vdisk_fd = open(vdiskname, O_RDWR);
+
+    for( int i = 0; i < 16; i++) {
+        open_files[i].used = NOTUSED;
+    }
     return(0);
 }
 
@@ -160,12 +187,13 @@ int sfs_umount ()
 }
 
 
+//inş bitti
 int sfs_create(char *filename)
 {
     void* dir_buffer = malloc(sizeof(char) * BLOCKSIZE);
     void* fcb_buffer = malloc(sizeof(char) * BLOCKSIZE);
-    struct DirectoryEntry* cur_dir_entry;
-    struct FCB* cur_fcb;
+    struct DirectoryEntry cur_dir_entry;
+    struct FCB cur_fcb;
     bool found = false;
     int i, j, k;
 
@@ -173,9 +201,9 @@ int sfs_create(char *filename)
         read_block(dir_buffer, i);
         for(j = 0; j < 32; ++j){
             cur_dir_entry = ((struct DirectoryEntry*) dir_buffer)[j];
-            if( cur_dir_entry->used == NOTUSED) {
-                cur_dir_entry->file_name = filename;
-                cur_dir_entry->used = USED;
+            if( cur_dir_entry.used == NOTUSED) {
+                strcpy(cur_dir_entry.file_name, filename);
+                cur_dir_entry.used = USED;
                 found = true;
                 break;
             }
@@ -184,27 +212,44 @@ int sfs_create(char *filename)
             break;
         }
     }
-    
+
     if(!found){
         fprintf(stderr, "%s\n", "sfs_create not found error");
         return -1;
     }
 
+    found = false;
     for(k = 9; k <= 12; ++k) {
         read_block(fcb_buffer, k);
         for(int m = 0; m < 32; ++m){
             cur_fcb = ((struct FCB*) fcb_buffer)[m];
-            if( cur_fcb->used == NOTUSED){
-                cur_fcb->used = USED;
-                cur_fcb->index_table_addr = find_available_block();
-                cur_dir_entry->FCB_index = cur_fcb->FCB_index;
+            if( cur_fcb.used == NOTUSED){
+                cur_fcb.used = USED;
+                cur_fcb.index_table_addr = find_available_block();
+                cur_dir_entry.FCB_index = cur_fcb.FCB_index;
+
+                ((struct DirectoryEntry*) dir_buffer)[j] = cur_dir_entry;
+                ((struct FCB*) fcb_buffer)[m] = cur_fcb;
+
+                write_block(dir_buffer, i);
+                write_block(fcb_buffer, k);
+                found = true;
+                break;
             }
         }
+        if(found)
+            break;
+    }
+
+    if(!found){
+        fprintf(stderr, "%s\n", "sfs_create not found error");
+        return -1;
     }
 
     return (0);
 }
 
+//inş doğrudur
 int find_available_block(){
     uint8_t* bitmap_buf = (uint8_t*) malloc(BLOCKSIZE);
     int i, j, empty_block;
@@ -256,19 +301,87 @@ int find_zero_byte(uint8_t bitmap_byte){
 
 int sfs_open(char *file, int mode)
 {
-    return (0);
+    bool found = false;
+    int open_file_index;
+    int i, j;
+
+    for( open_file_index = 0; open_file_index < 16; open_file_index++) {
+        if(open_files[open_file_index].used == NOTUSED) {
+            found = true;
+            break;
+        }
+    }
+
+    if(!found)
+        return -1;
+
+    found = false;
+    struct DirectoryEntry* cur_entry = (struct DirectoryEntry*) malloc(BLOCKSIZE);
+
+    for(i = 5; i <= 8; i++) {
+        read_block(cur_entry, i);
+        for(j = 0; j < 32; j++) {
+            if(cur_entry[j].used == USED && strcmp(cur_entry[j].file_name, file) == 0) {
+                found = true;
+                break;
+            }
+        }
+        if(found)
+            break;
+    }
+
+    if(!found)
+        return -1;
+
+    int FCB_index = cur_entry[j].FCB_index;
+
+    int FCB_block = FCB_index / 32;
+    int FCB_block_index = FCB_index % 32;
+
+    struct FCB* cur_FCB = (struct FCB*) malloc(BLOCKSIZE);
+
+    read_block(cur_FCB, FCB_block);
+    int table_addr = cur_FCB[FCB_block_index].index_table_addr;
+
+    open_files[open_file_index].index_table_addr = table_addr;
+    open_files[open_file_index].FCB_index = FCB_index;
+    open_files[open_file_index].used = USED;
+    open_files[open_file_index].mode = mode;
+    open_files[open_file_index].read_index = 0;
+    strcpy(open_files[open_file_index].file_name, file);
+
+    return open_file_index;
 }
 
-int sfs_close(int fd){
+int sfs_close(int fd) {
+
+    if(open_files[fd].used == NOTUSED)
+        return -1;
+
+    open_files[fd].used = NOTUSED;
     return (0);
 }
 
 int sfs_getsize (int  fd)
 {
-    return (0);
+    int FCB_index = open_files[fd].FCB_index;
+
+    int FCB_block = FCB_index / 32;
+    int FCB_block_index = FCB_index % 32;
+
+    struct FCB* cur_FCB = (struct FCB*) malloc(BLOCKSIZE);
+
+    if(read_block(cur_FCB, FCB_block) != 0) {
+        fprintf(stderr, "%s\n", "Block read err");
+        return -1;
+    }
+
+    int size = cur_FCB[FCB_block_index].file_size;
+
+    return size;
 }
 
-int sfs_read(int fd, void *buf, int n){
+int sfs_read(int fd, void *buf, int n) {
     return (0);
 }
 
@@ -277,8 +390,47 @@ int sfs_append(int fd, void *buf, int n)
     return (0);
 }
 
-int sfs_delete(char *filename)
-{
+// TODO
+// index_tableın olduğu block silinecek
+// index table ın her entrysinin olduğu block silenecek
+// bu silenenler silinmeden önce 0 olcak
+// bitmap update edilecek
+int sfs_delete(char *filename) {
+
+    int i;
+
+    struct DirectoryEntry cur_dir_entry;
+
+    for(i = 5; i <= 8; ++i){
+        read_block(dir_buffer, i);
+        for(j = 0; j < 32; ++j){
+            cur_dir_entry = ((struct DirectoryEntry*) dir_buffer)[j];
+            if( cur_dir_entry.used == USED && strcmp(cur_dir_entry.file_name, filename)) {
+                cur_dir_entry.used = NOTUSED;
+                found = true;
+                break;
+            }
+        }
+        if(found){
+            break;
+        }
+    }
+    int FCB_index = cur_dir_entry.FCB_index;
+
+    int FCB_block = FCB_index / 32;
+    int FCB_block_index = FCB_index % 32;
+
+    struct FCB* cur_FCB = (struct FCB*) malloc(BLOCKSIZE);
+
+    if(read_block(cur_FCB, FCB_block) != 0) {
+        fprintf(stderr, "%s\n", "Block read err");
+        return -1;
+    }
+
+    int index_table_addr = cur_FCB[FCB_block_index].index_table_addr;
+
+    cur_FCB[FCB_block_index].used = NOTUSED;
+
     return (0);
 }
 
