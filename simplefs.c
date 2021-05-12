@@ -3,14 +3,17 @@
 #include <math.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include <stdbool.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <stdint.h>
 #include "simplefs.h"
 
 #define USED 1
 #define NOTUSED 0
 #define FCB_COUNT 128
 #define FILENAME 110
+#define DIR_ENTRY_SIZE 128
 // Global Variables =======================================
 int vdisk_fd; // Global virtual disk file descriptor. Global within the library.
               // Will be assigned with the vsfs_mount call.
@@ -28,6 +31,13 @@ struct OpenFile {
 struct SuperBlock {
     int num_blocks;
     char dummy[BLOCKSIZE-(sizeof(int))];
+};
+
+struct DirectoryEntry {
+    char file_name[FILENAME];
+    int FCB_index;
+    int used;
+    char dummy[DIR_ENTRY_SIZE - (sizeof(int)*2) - (sizeof(char)*FILENAME)];
 };
 
 struct OpenFile open_files[16];
@@ -88,8 +98,6 @@ int create_format_vdisk (char *vdiskname, unsigned int m)
     //printf ("executing command = %s\n", command);
     system (command);
 
-
-
     // now write the code to format the disk below.
     // .. your code...
 
@@ -99,20 +107,28 @@ int create_format_vdisk (char *vdiskname, unsigned int m)
 
     sb -> num_blocks = count;
 
-    write_block(sb, 0);
-
-    char* bit_map = (char *) malloc(sizeof(char) * BLOCKSIZE);
-
-    for( int i = 0; i < BLOCKSIZE; i++) {
-        bit_map[i] = '0';
+    if(write_block(sb, 0) != 0){
+        fprintf(stderr, "%s\n", "Superblock write err");
+        return -1;
     }
 
-    write_block(bit_map, 1);
-    write_block(bit_map, 2);
-    write_block(bit_map, 3);
-    write_block(bit_map, 4);
+    uint8_t* bitmap = (uint8_t *) malloc(sizeof(uint8_t) * BLOCKSIZE);
+    for( int i = 0; i < BLOCKSIZE; ++i) {
+        bitmap[i] = 0x00;
+    }
+
+    bitmap[0] = 0xFF;
+    bitmap[1] = 0xF0;
+
+    if(write_block(bitmap, 1)){
+        fprintf(stderr, "%s\n", "Bitmap write err");
+        return -1;
+    }
 
     sfs_umount();
+
+    free(sb);
+    free(bitmap);
     return (0);
 }
 
@@ -139,6 +155,31 @@ int sfs_umount ()
 
 int sfs_create(char *filename)
 {
+    void* dir_buffer = malloc(sizeof(char) * BLOCKSIZE);
+    struct DirectoryEntry* cur_entry;
+    bool found = false;
+
+    for(int i = 5; i <= 8; ++i){
+        read_block(dir_buffer, i);
+        for(int j = 0; j < 32; ++j){
+            cur_entry = ((struct DirectoryEntry*) dir_buffer)[j];
+            if( cur_entry->used == NOTUSED) {
+                cur_entry->file_name = filename;
+                cur_entry->used = USED;
+                found = true;
+                break;
+            }
+        }
+        if(found){
+            break;
+        }
+    }
+    
+    if(!found){
+        fprintf(stderr, "%s\n", "sfs_create found error");
+        return -1;
+    }
+
     return (0);
 }
 
