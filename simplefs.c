@@ -40,6 +40,13 @@ struct DirectoryEntry {
     char dummy[DIR_ENTRY_SIZE - (sizeof(int)*2) - (sizeof(char)*FILENAME)];
 };
 
+struct FCB {
+    int FCB_index;
+    int used;
+    int index_table_addr;
+    char dummy[BLOCKSIZE - (sizeof(int) * 3)];
+};
+
 struct OpenFile open_files[16];
 // ========================================================
 
@@ -156,12 +163,15 @@ int sfs_umount ()
 int sfs_create(char *filename)
 {
     void* dir_buffer = malloc(sizeof(char) * BLOCKSIZE);
+    void* fcb_buffer = malloc(sizeof(char) * BLOCKSIZE);
     struct DirectoryEntry* cur_entry;
+    struct FCB* cur_fcb;
     bool found = false;
+    int i, j, k;
 
-    for(int i = 5; i <= 8; ++i){
+    for(i = 5; i <= 8; ++i){
         read_block(dir_buffer, i);
-        for(int j = 0; j < 32; ++j){
+        for(j = 0; j < 32; ++j){
             cur_entry = ((struct DirectoryEntry*) dir_buffer)[j];
             if( cur_entry->used == NOTUSED) {
                 cur_entry->file_name = filename;
@@ -176,13 +186,39 @@ int sfs_create(char *filename)
     }
     
     if(!found){
-        fprintf(stderr, "%s\n", "sfs_create found error");
+        fprintf(stderr, "%s\n", "sfs_create not found error");
         return -1;
+    }
+
+    for(k = 9; k <= 12; ++k) {
+        read_block(fcb_buffer, k);
+        for(int m = 0; m < 32; ++m){
+            cur_fcb = ((struct FCB*) fcb_buffer)[m];
+            if( cur_fcb->used == NOTUSED){
+                cur_fcb->used = USED;
+
+            }
+        }
     }
 
     return (0);
 }
 
+int find_available_block(){
+    uint8_t* bitmap_buf = (uint8_t*) malloc(BLOCKSIZE);
+    int i;
+    for(i = 1; i <= 4; ++i){
+        read_block(bitmap_buf, i);
+        for( int j = 0; j < BLOCKSIZE; ++j){
+            uint8_t cur_byte = bitmap_buf[j];
+            if (cur_byte != 0xFF){
+
+            }
+        }
+    }
+}
+
+int find_zero_
 
 int sfs_open(char *file, int mode)
 {
@@ -201,7 +237,6 @@ int sfs_getsize (int  fd)
 int sfs_read(int fd, void *buf, int n){
     return (0);
 }
-
 
 int sfs_append(int fd, void *buf, int n)
 {
