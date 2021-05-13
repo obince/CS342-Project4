@@ -22,6 +22,7 @@
 **/
 int find_zero_byte(uint8_t bitmap_byte);
 int find_available_block();
+int FCB_index_to_block(int FCB_index);
 
 // Global Variables =======================================
 int vdisk_fd; // Global virtual disk file descriptor. Global within the library.
@@ -224,9 +225,16 @@ int sfs_create(char *filename)
         for(int m = 0; m < 32; ++m){
             cur_fcb = ((struct FCB*) fcb_buffer)[m];
             if( cur_fcb.used == NOTUSED){
+
                 cur_fcb.used = USED;
                 cur_fcb.index_table_addr = find_available_block();
+
+                if(cur_fcb.index_table_addr == -1) {
+                    return -1;
+                }
+
                 cur_dir_entry.FCB_index = cur_fcb.FCB_index;
+                cur_fcb.file_size = 0;
 
                 ((struct DirectoryEntry*) dir_buffer)[j] = cur_dir_entry;
                 ((struct FCB*) fcb_buffer)[m] = cur_fcb;
@@ -254,6 +262,8 @@ int find_available_block(){
     uint8_t* bitmap_buf = (uint8_t*) malloc(BLOCKSIZE);
     int i, j, empty_block;
     bool found = false;
+    int available_block_idx;
+
     for(i = 1; i <= 4; ++i){
         read_block(bitmap_buf, i);
         for( j = 0; j < BLOCKSIZE; ++j){
@@ -261,6 +271,20 @@ int find_available_block(){
             if (cur_byte != 0xFF){
                 empty_block = find_zero_byte(cur_byte);
                 found = true;
+
+                struct SuperBlock* sb = (struct SuperBlock*) malloc(sizeof(struct SuperBlock));
+
+                if( read_block(sb,0) != 0) {
+                    printf("Super_block read error!!!\n");
+                    return -1;
+                }
+
+                available_block_idx = ((i - 1) * BLOCKSIZE) + (8 * j) + empty_block;
+
+                if(available_block_idx >= sb->num_blocks) {
+                    printf("No block available!!!\n");
+                    return -1;
+                }
 
                 cur_byte = cur_byte | (1 << (7 - empty_block));
                 bitmap_buf[j] = cur_byte;
@@ -277,7 +301,8 @@ int find_available_block(){
         return -1;
     }
 
-    int available_block_idx = ((i - 1) * BLOCKSIZE) + (8 * j) + empty_block;
+    available_block_idx = ((i - 1) * BLOCKSIZE) + (8 * j) + empty_block;
+
     return available_block_idx;
 }
 
@@ -335,7 +360,7 @@ int sfs_open(char *file, int mode)
 
     int FCB_index = cur_entry[j].FCB_index;
 
-    int FCB_block = FCB_index / 32;
+    int FCB_block = FCB_index_to_block(FCB_index);
     int FCB_block_index = FCB_index % 32;
 
     struct FCB* cur_FCB = (struct FCB*) malloc(BLOCKSIZE);
@@ -366,7 +391,7 @@ int sfs_getsize (int  fd)
 {
     int FCB_index = open_files[fd].FCB_index;
 
-    int FCB_block = FCB_index / 32;
+    int FCB_block = FCB_index_to_block(FCB_index);
     int FCB_block_index = FCB_index % 32;
 
     struct FCB* cur_FCB = (struct FCB*) malloc(BLOCKSIZE);
@@ -382,12 +407,221 @@ int sfs_getsize (int  fd)
 }
 
 int sfs_read(int fd, void *buf, int n) {
-    return (0);
+    int i = 0;
+
+    if(open_files[fd].used == NOTUSED || open_files[fd].mode == MODE_APPEND) {
+        fprintf(stderr, "%s\n", "WRONG format read!");
+        return -1;
+    }
+
+    struct OpenFile cur_file = open_files[fd];
+
+    int FCB_index = cur_file.FCB_index;
+
+    int FCB_block = FCB_index_to_block(FCB_index);
+    int FCB_block_index = FCB_index % 32;
+
+    struct FCB* cur_FCB = (struct FCB*) malloc(BLOCKSIZE);
+
+    if(read_block(cur_FCB, FCB_block) != 0) {
+        fprintf(stderr, "%s\n", "Block read err");
+        return -1;
+    }
+
+    int size = cur_FCB[FCB_block_index].file_size;
+    int index_addr = cur_FCB[FCB_block_index].index_table_addr;
+
+    int* indices = (int*) malloc(sizeof(int) * 1024);
+
+    if(read_block(indices, index_addr) != 0) {
+        fprintf(stderr, "%s\n", "Index read err");
+        return -1;
+    }
+
+    int read_size = open_files[fd].read_index;
+
+    int index_block = read_size / 4096;
+    int offset = read_size % 4096;
+
+    int current_block = indices[index_block];
+
+    if(current_block == 0) {
+        printf("END OF FILE!!!\n");
+        return -1;
+    }
+
+    int read_goal = 0;
+
+    if( n + read_size < size){
+        read_goal = n;
+    }
+    else {
+        read_goal = size - read_size;
+    }
+
+    char* cur_buf = (char*) malloc(BLOCKSIZE);
+
+    if(read_block(cur_buf, current_block) != 0) {
+        fprintf(stderr, "%s\n", "Current block read err");
+        return -1;
+    }
+
+    int count = 0;
+
+    for( i = offset; (i < (read_goal + offset)) && (i < BLOCKSIZE); i++) {
+        ((char*) buf)[count] = cur_buf[i];
+        count++;
+    }
+
+    while(count != read_goal) {
+
+        index_block++;
+
+        if(index_block >= 1024) {
+            printf("File size limit is reached!!\n");
+            return count;
+        }
+
+        current_block = indices[index_block];
+
+        if(current_block == 0) {
+            return -1;
+        }
+
+        if(read_block(cur_buf, current_block) != 0) {
+            fprintf(stderr, "%s\n", "Current block read err");
+            return -1;
+        }
+        for(int i = 0; i < BLOCKSIZE; i++) {
+
+            ((char*) buf)[count] = cur_buf[i];
+            count++;
+
+            if(count == read_goal)
+                break;
+        }
+    }
+
+    return count;
 }
 
-int sfs_append(int fd, void *buf, int n)
-{
-    return (0);
+//DEĞİŞECEKLER
+//EĞER YENİ BLOCK KULLANILIRSA BİTMAP VE INDEX_NODE DEĞİŞECEK
+//SIZE ARTACAK
+//BLOCKLARA N KADAR BİŞEY YAZILACAK.
+int sfs_append(int fd, void *buf, int n) {
+
+    int i;
+
+    if(open_files[fd].used == NOTUSED || open_files[fd].mode == MODE_READ) {
+        fprintf(stderr, "%s\n", "WRONG format append!");
+        return -1;
+    }
+
+
+    struct OpenFile cur_file = open_files[fd];
+
+    int FCB_index = cur_file.FCB_index;
+
+    int FCB_block = FCB_index_to_block(FCB_index);
+    int FCB_block_index = FCB_index % 32;
+
+    struct FCB* cur_FCB = (struct FCB*) malloc(BLOCKSIZE);
+
+    if(read_block(cur_FCB, FCB_block) != 0) {
+        fprintf(stderr, "%s\n", "Block read err");
+        return -1;
+    }
+
+    int size = cur_FCB[FCB_block_index].file_size;
+    int index_addr = cur_FCB[FCB_block_index].index_table_addr;
+
+    int* indices = (int*) malloc(sizeof(int) * 1024);
+
+    if(read_block(indices, index_addr) != 0) {
+        fprintf(stderr, "%s\n", "Index read err");
+        return -1;
+    }
+
+    int index_block = size / 4096;
+    int offset = size % 4096;
+
+    int current_block = indices[index_block];
+
+    if(current_block == 0) {
+        current_block = find_available_block();
+
+        if(current_block == -1) {
+            return -1;
+        }
+
+        indices[index_block] = current_block;
+        write_block(indices, index_addr);
+    }
+
+    char* cur_buf = (char*) malloc(BLOCKSIZE);
+
+    if(read_block(cur_buf, current_block) != 0) {
+        fprintf(stderr, "%s\n", "Current block read err");
+        return -1;
+    }
+    //offset + n <= 4096 direk offsetten yaz
+    //offset + n > 4096
+    char* user_buffer = (char*) buf;
+    int count = 0;
+
+    for( i = offset; (i < (n + offset)) && (i < BLOCKSIZE); i++) {
+        cur_buf[i] = user_buffer[count];
+        count++;
+    }
+
+    //size += count;
+
+    if(write_block(cur_buf, current_block) != 0) {
+        fprintf(stderr, "%s\n", "Current block write err");
+        return -1;
+    }
+
+    while(count != n) {
+        current_block = find_available_block();
+
+        if(current_block == -1) {
+            return -1;
+        }
+
+        index_block++;
+
+        if(index_block >= 1024) {
+            printf("File size limit is reached!!\n");
+            return count;
+        }
+
+        indices[index_block] = current_block;
+        write_block(indices, index_addr);
+
+        if(read_block(cur_buf, current_block) != 0) {
+            fprintf(stderr, "%s\n", "Current block read err");
+            return -1;
+        }
+        for(int i = 0; i < BLOCKSIZE; i++) {
+            cur_buf[i] = user_buffer[count];
+            count++;
+
+            if(count == n)
+                break;
+        }
+    }
+
+    size += count;
+
+    cur_FCB[FCB_block_index].file_size = size;
+
+    if(write_block(cur_FCB, FCB_block) != 0) {
+        fprintf(stderr, "%s\n", "Current block read err");
+        return -1;
+    }
+
+    return count;
 }
 
 // TODO
@@ -397,8 +631,10 @@ int sfs_append(int fd, void *buf, int n)
 // bitmap update edilecek
 int sfs_delete(char *filename) {
 
-    int i;
+    int i, j;
+    bool found = false;
 
+    struct DirectoryEntry* dir_buffer = (struct DirectoryEntry*) malloc(BLOCKSIZE);
     struct DirectoryEntry cur_dir_entry;
 
     for(i = 5; i <= 8; ++i){
@@ -417,7 +653,7 @@ int sfs_delete(char *filename) {
     }
     int FCB_index = cur_dir_entry.FCB_index;
 
-    int FCB_block = FCB_index / 32;
+    int FCB_block = FCB_index_to_block(FCB_index);
     int FCB_block_index = FCB_index % 32;
 
     struct FCB* cur_FCB = (struct FCB*) malloc(BLOCKSIZE);
@@ -432,5 +668,13 @@ int sfs_delete(char *filename) {
     cur_FCB[FCB_block_index].used = NOTUSED;
 
     return (0);
+}
+
+int FCB_index_to_block(int FCB_index) {
+
+    int FCB_block = (FCB_index / 32) + 9;
+
+    return FCB_block;
+
 }
 

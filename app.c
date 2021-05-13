@@ -49,8 +49,8 @@ int main(int argc, char **argv)
         sfs_append(fd2, (void *) buffer, 4);
     }
 
-    sfs_close(fd1);
-    sfs_close(fd2);
+    //sfs_close(fd1);
+    //sfs_close(fd2);
 
     fd = sfs_open("file3.bin", MODE_APPEND);
     for (i = 0; i < 10000; ++i) {
@@ -60,12 +60,12 @@ int main(int argc, char **argv)
     sfs_close (fd);
 
     fd = sfs_open("file3.bin", MODE_READ);
-    size = sfs_getsize (fd);
+    size = sfs_getsize(fd);
     for (i = 0; i < size; ++i) {
         sfs_read (fd, (void *) buffer, 1);
         c = (char) buffer[0];
         c = c + 1;
     }
-    sfs_close (fd);
+    //sfs_close (fd);
     ret = sfs_umount();
 }
