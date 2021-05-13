@@ -23,7 +23,9 @@
 int find_zero_byte(uint8_t bitmap_byte);
 int find_available_block();
 int FCB_index_to_block(int FCB_index);
-
+uint8_t deleted_result( uint8_t cur_byte, int bit_map_offset);
+int delete_block(int block_number);
+int a;
 // Global Variables =======================================
 int vdisk_fd; // Global virtual disk file descriptor. Global within the library.
               // Will be assigned with the vsfs_mount call.
@@ -76,8 +78,8 @@ int read_block (void *block, int k)
     lseek(vdisk_fd, (off_t) offset, SEEK_SET);
     n = read (vdisk_fd, block, BLOCKSIZE);
     if (n != BLOCKSIZE) {
-	printf ("read error\n");
-	return -1;
+	   printf ("read error\n");
+	   return -1;
     }
     return (0);
 }
@@ -171,6 +173,9 @@ int sfs_mount (char *vdiskname)
     // way make it ready to be used for other operations.
     // vdisk_fd is global; hence other function can use it.
     vdisk_fd = open(vdiskname, O_RDWR);
+
+    if(vdisk_fd == -1)
+        return -1;
 
     for( int i = 0; i < 16; i++) {
         open_files[i].used = NOTUSED;
@@ -278,19 +283,22 @@ int find_available_block(){
 
                 if( read_block(sb,0) != 0) {
                     printf("Super_block read error!!!\n");
+                    free(sb);
                     return -1;
                 }
 
                 available_block_idx = ((i - 1) * BLOCKSIZE) + (8 * j) + empty_block;
 
-                if(available_block_idx >= sb->num_blocks) {
+                if(available_block_idx >= (sb->num_blocks - 1)) {
                     printf("No block available!!!\n");
+                    free(sb);
                     return -1;
                 }
 
                 cur_byte = cur_byte | (1 << (7 - empty_block));
                 bitmap_buf[j] = cur_byte;
                 write_block(bitmap_buf, i);
+                free(sb);
                 break;
             }
         }
@@ -306,7 +314,6 @@ int find_available_block(){
     available_block_idx = ((i - 1) * BLOCKSIZE) + (8 * j) + empty_block;
 
     free(bitmap_buf);
-    free(sb);
     return available_block_idx;
 }
 
@@ -452,7 +459,7 @@ int sfs_read(int fd, void *buf, int n) {
 
     int current_block = indices[index_block];
 
-    if(current_block == 0) {
+    if(current_block == 0 || index_block >= 1024) {
         printf("END OF FILE!!!\n");
         return -1;
     }
@@ -658,7 +665,7 @@ int sfs_delete(char *filename) {
         read_block(dir_buffer, i);
         for(j = 0; j < 32; ++j){
             cur_dir_entry = ((struct DirectoryEntry*) dir_buffer)[j];
-            if( cur_dir_entry.used == USED && strcmp(cur_dir_entry.file_name, filename)) {
+            if( cur_dir_entry.used == USED && strcmp(cur_dir_entry.file_name, filename) == 0) {
                 found = true;
                 break;
             }

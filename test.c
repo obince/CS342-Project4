@@ -35,11 +35,62 @@ int main(int argc, char **argv)
     sfs_create ("file2.bin");
     sfs_create ("file3.bin");
 
-    fd[0] = sfs_open("file1.bin", MODE_APPEND);
+    fd[0] = sfs_open("file3.bin", MODE_APPEND);
     fd[1] = sfs_open("file2.bin", MODE_APPEND);
-    fd[2] = sfs_open("file3.bin", MODE_APPEND);
+    fd[2] = sfs_open("file1.bin", MODE_APPEND);
     int write_count = 0;
+
     for (i = 0; i < 1000; ++i) {
+        //memcpy (buffer, buffer2, 8); // just to show memcpy
+        //write_count += sfs_append(fd[0], (void *) buffer, 8);
+        memcpy (buffer, buffer3, 8); // just to show memcpy
+        write_count += sfs_append(fd[1], (void *) buffer, 8);
+    }
+    printf("Write Count: %d\n", write_count);
+
+    write_count = 0;
+
+    for (i = 0; i < 1000; ++i) {
+        memcpy (buffer, buffer2, 8); // just to show memcpy
+        write_count += sfs_append(fd[0], (void *) buffer, 8);
+    }
+    printf("Write Count2: %d\n", write_count);
+    sfs_close(fd[0]);
+    sfs_close(fd[1]);
+
+    fd[0] = sfs_open("file3.bin", MODE_READ);
+    fd[1] = sfs_open("file2.bin", MODE_READ);
+    size = sfs_getsize(fd[0]);
+    for(int l = 0; l < 1024; ++l){
+        buffer[l] = 0;
+    }
+
+    int buffer_cnt[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    for (i = 0; i < size; ++i) {
+        int read_count = sfs_read (fd[0], (void *) buffer, 1);
+        c = buffer[0];
+        buffer_cnt[c - 1] += 1;
+        c = c + 1;
+    }
+
+    for(int k = 0; k < 8; ++k){
+        printf("Buffer_cnt[%d]: %d\n", k + 1, buffer_cnt[k]);
+    }
+    sfs_close (fd[0]);
+    sfs_close (fd[1]);
+
+    sfs_delete ("file1.bin");
+    sfs_delete ("file2.bin");
+    sfs_delete ("file3.bin");
+    /*
+    printf ("creating files\n");
+
+    fd[0] = sfs_open("file11.bin", MODE_APPEND);
+    fd[1] = sfs_open("file12.bin", MODE_APPEND);
+    fd[2] = sfs_open("file13.bin", MODE_APPEND);
+    write_count = 0;
+
+    for (i = 0; i < 10000; ++i) {
         memcpy (buffer, buffer2, 8); // just to show memcpy
         write_count += sfs_append(fd[0], (void *) buffer, 8);
         memcpy (buffer, buffer3, 8); // just to show memcpy
@@ -49,25 +100,26 @@ int main(int argc, char **argv)
     sfs_close(fd[0]);
     sfs_close(fd[1]);
 
-    fd[0] = sfs_open("file1.bin", MODE_READ);
-    fd[1] = sfs_open("file2.bin", MODE_READ);
+    fd[0] = sfs_open("file11.bin", MODE_READ);
+    fd[1] = sfs_open("file12.bin", MODE_READ);
     size = sfs_getsize(fd[1]);
     for(int l = 0; l < 1024; ++l){
         buffer[l] = 0;
     }
 
-    int buffer_cnt[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    int buffer_cnt1[8] = {0, 0, 0, 0, 0, 0, 0, 0};
     for (i = 0; i < size; ++i) {
         int read_count = sfs_read (fd[1], (void *) buffer, 1);
         c = buffer[0];
-        buffer_cnt[c - 9] += 1;
+        buffer_cnt1[c - 9] += 1;
         c = c + 1;
     }
 
     for(int k = 0; k < 8; ++k){
-        printf("Buffer_cnt[%d]: %d\n", k + 9, buffer_cnt[k]);
+        printf("Buffer_cnt[%d]: %d\n", k + 9, buffer_cnt1[k]);
     }
     sfs_close (fd[0]);
     sfs_close (fd[1]);
+    */
     ret = sfs_umount();
 }
