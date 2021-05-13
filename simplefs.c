@@ -254,6 +254,8 @@ int sfs_create(char *filename)
         return -1;
     }
 
+    free(dir_buffer);
+    free(fcb_buffer);
     return (0);
 }
 
@@ -303,6 +305,8 @@ int find_available_block(){
 
     available_block_idx = ((i - 1) * BLOCKSIZE) + (8 * j) + empty_block;
 
+    free(bitmap_buf);
+    free(sb);
     return available_block_idx;
 }
 
@@ -375,6 +379,8 @@ int sfs_open(char *file, int mode)
     open_files[open_file_index].read_index = 0;
     strcpy(open_files[open_file_index].file_name, file);
 
+    free(cur_entry);
+    free(cur_FCB);
     return open_file_index;
 }
 
@@ -403,6 +409,7 @@ int sfs_getsize (int  fd)
 
     int size = cur_FCB[FCB_block_index].file_size;
 
+    free(cur_FCB);
     return size;
 }
 
@@ -504,6 +511,10 @@ int sfs_read(int fd, void *buf, int n) {
     }
 
     open_files[fd].read_index += count;
+    
+    free(cur_FCB);
+    free(cur_buf);
+    free(indices);
     return count;
 }
 
@@ -623,6 +634,9 @@ int sfs_append(int fd, void *buf, int n) {
         return -1;
     }
 
+    free(cur_FCB);
+    free(indices);
+    free(cur_buf);
     return count;
 }
 
@@ -637,6 +651,7 @@ int sfs_delete(char *filename) {
     bool found = false;
 
     struct DirectoryEntry* dir_buffer = (struct DirectoryEntry*) malloc(BLOCKSIZE);
+    int* indices = (int*) malloc(BLOCKSIZE);
     struct DirectoryEntry cur_dir_entry;
 
     for(i = 5; i <= 8; ++i){
@@ -644,7 +659,6 @@ int sfs_delete(char *filename) {
         for(j = 0; j < 32; ++j){
             cur_dir_entry = ((struct DirectoryEntry*) dir_buffer)[j];
             if( cur_dir_entry.used == USED && strcmp(cur_dir_entry.file_name, filename)) {
-                cur_dir_entry.used = NOTUSED;
                 found = true;
                 break;
             }
@@ -653,6 +667,12 @@ int sfs_delete(char *filename) {
             break;
         }
     }
+
+    if(!found) {
+        printf("sfs_delete, filename DNE!\n");
+        return -1;
+    }
+
     int FCB_index = cur_dir_entry.FCB_index;
 
     int FCB_block = FCB_index_to_block(FCB_index);
@@ -667,9 +687,86 @@ int sfs_delete(char *filename) {
 
     int index_table_addr = cur_FCB[FCB_block_index].index_table_addr;
 
+    if(read_block(indices, index_table_addr) != 0) {
+        fprintf(stderr, "%s\n", "Index block read err sfs_del");
+        return -1;
+    }
+
+    for(int k = 0; k < (BLOCKSIZE / sizeof(int)); k++) {
+        if(indices[k] == 0)
+            break;
+        delete_block(indices[k]);
+    }
+
+    delete_block(index_table_addr);
+
     cur_FCB[FCB_block_index].used = NOTUSED;
+    cur_FCB[FCB_block_index].index_table_addr = 0;
+    cur_FCB[FCB_block_index].file_size = 0;
+    cur_dir_entry.used = NOTUSED;
+
+    ((struct DirectoryEntry*) dir_buffer)[j] = cur_dir_entry;
+
+    if(write_block(dir_buffer, i) != 0) {
+        fprintf(stderr, "%s\n", "Directory block write err sfs_del");
+        return -1;
+    }
+
+    if(write_block(cur_FCB, FCB_block) != 0) {
+        fprintf(stderr, "%s\n", "FCB block write err sfs_del");
+        return -1;
+    }
+
+    free(dir_buffer);
+    free(indices);
+    free(cur_FCB);
 
     return (0);
+}
+
+int delete_block(int block_number) {
+    char* cur_buf = (char*) malloc(BLOCKSIZE);
+    uint8_t* bit_map_buf = (uint8_t*) malloc(BLOCKSIZE);
+
+    for(int i = 0; i < BLOCKSIZE; i++) {
+        cur_buf[i] = 0;
+    }
+
+    if(write_block(cur_buf, block_number) != 0) {
+        fprintf(stderr, "%s\n", "Block write err");
+        return -1;
+    }
+
+    int bit_map_block_index = (block_number / (BLOCKSIZE * 8)) + 1;
+    int byte_offset = (block_number % (BLOCKSIZE * 8)) / 8;
+    int bit_map_offset = (block_number % (BLOCKSIZE * 8)) % 8;
+
+
+    if(read_block(bit_map_buf, bit_map_block_index) != 0) {
+        fprintf(stderr, "%s\n", "Block read err");
+        return -1;
+    }
+
+    uint8_t cur_byte = bit_map_buf[byte_offset];
+
+    bit_map_buf[byte_offset] = deleted_result(cur_byte, bit_map_offset);
+
+    if(write_block(bit_map_buf, bit_map_block_index) != 0) {
+        fprintf(stderr, "%s\n", "Block write err");
+        return -1;
+    }
+
+    free(cur_buf);
+    free(bit_map_buf);
+    return 0;
+}
+
+// DOUBLE CHECK
+uint8_t deleted_result( uint8_t cur_byte, int bit_map_offset) {
+    uint8_t num = ((uint8_t) 1 << (7 - bit_map_offset));
+    num = num ^ 0xFF;
+    cur_byte = num & cur_byte;
+    return cur_byte;
 }
 
 int FCB_index_to_block(int FCB_index) {
