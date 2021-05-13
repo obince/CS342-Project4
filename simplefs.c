@@ -479,6 +479,7 @@ int sfs_read(int fd, void *buf, int n) {
 
         if(index_block >= 1024) {
             printf("File size limit is reached!!\n");
+            open_files[fd].read_index += count;
             return count;
         }
 
@@ -502,6 +503,7 @@ int sfs_read(int fd, void *buf, int n) {
         }
     }
 
+    open_files[fd].read_index += count;
     return count;
 }
 

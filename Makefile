@@ -1,7 +1,7 @@
 
 
 
-all: libsimplefs.a create_format app
+all: libsimplefs.a create_format app test
 
 libsimplefs.a: 	simplefs.c
 	gcc -Wall -c simplefs.c
@@ -14,5 +14,8 @@ create_format: create_format.c
 app: 	app.c
 	gcc -Wall -o app app.c  -L. -lsimplefs
 
+test: test.c
+	gcc -Wall -o test test.c  -L. -lsimplefs
+
 clean: 
-	rm -fr *.o *.a *~ a.out app  vdisk create_format
+	rm -fr *.o *.a *~ a.out app test vdisk create_format
