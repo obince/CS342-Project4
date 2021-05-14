@@ -18,7 +18,7 @@ int main(int argc, char **argv)
     strcpy (vdiskname, argv[1]); 
     m = atoi(argv[2]); 
     
-    printf ("started\n"); 
+    // printf ("started\n"); 
     
     ret  = create_format_vdisk (vdiskname, m); 
     if (ret != 0) {
@@ -26,5 +26,5 @@ int main(int argc, char **argv)
         exit(1); 
     }
 
-    printf ("disk created and formatted. %s %d\n", vdiskname, m); 
+    // printf ("disk created and formatted. %s %d\n", vdiskname, m); 
 }

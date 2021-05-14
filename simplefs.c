@@ -118,7 +118,7 @@ int create_format_vdisk (char *vdiskname, unsigned int m)
              vdiskname, BLOCKSIZE, count);
     //printf ("executing command = %s\n", command);
     system (command);
-    printf("Num blocks: %d\n", count);
+    // printf("Num blocks: %d\n", count);
     // now write the code to format the disk below.
     // .. your code...
 
