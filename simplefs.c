@@ -312,7 +312,7 @@ int find_available_block(){
 
                 // calculate the available block index from loop values and empty bit
                 available_block_idx = ((i - 1) * BLOCKSIZE) + (8 * j) + empty_block;
-                if(available_block_idx >= (sb->num_blocks - 1)) {
+                if(available_block_idx >= sb->num_blocks) {
                     printf("No block available!!!\n");
                     free(sb);
                     return -1;
@@ -338,10 +338,6 @@ int find_available_block(){
     available_block_idx = ((i - 1) * BLOCKSIZE) + (8 * j) + empty_block;
 
     free(bitmap_buf);
-    if(available_block_idx == 12) {
-        printf("BULDUM BULDUM BULDUM");
-        exit(1);
-    }
     return available_block_idx;
 }
 
