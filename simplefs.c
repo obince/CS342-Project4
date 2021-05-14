@@ -1,3 +1,4 @@
+#include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
@@ -118,7 +119,7 @@ int create_format_vdisk (char *vdiskname, unsigned int m)
              vdiskname, BLOCKSIZE, count);
     //printf ("executing command = %s\n", command);
     system (command);
-
+    printf("Num blocks: %d\n", count);
     // now write the code to format the disk below.
     // .. your code...
 
@@ -142,7 +143,7 @@ int create_format_vdisk (char *vdiskname, unsigned int m)
     }
 
     bitmap[0] = 0xFF;
-    bitmap[1] = 0xF0;
+    bitmap[1] = 0xF8;
 
     if(write_block(bitmap, 1)){
         fprintf(stderr, "%s\n", "Bitmap write err");
@@ -155,6 +156,7 @@ int create_format_vdisk (char *vdiskname, unsigned int m)
         read_block(cur_FCB, i);
         for( int j = 0; j < 32; j++) {
             cur_FCB[j].FCB_index = ((i-9) * 32) + j;
+            cur_FCB[j].used = NOTUSED;
         }
         write_block(cur_FCB, i);
     }
@@ -317,6 +319,10 @@ int find_available_block(){
     available_block_idx = ((i - 1) * BLOCKSIZE) + (8 * j) + empty_block;
 
     free(bitmap_buf);
+    if(available_block_idx == 12) {
+        printf("BULDUM BULDUM BULDUM");
+        exit(1);
+    }
     return available_block_idx;
 }
 
@@ -479,7 +485,8 @@ int sfs_read(int fd, void *buf, int n) {
     char* cur_buf = (char*) malloc(BLOCKSIZE);
 
     if(read_block(cur_buf, current_block) != 0) {
-        fprintf(stderr, "%s\n", "Current block read err");
+        printf("current_block: %d, index_block: %d\n", current_block, index_block);
+        fprintf(stderr, "%s\n", "sfs_read 1 Current block read err");
         return -1;
     }
 
@@ -507,7 +514,8 @@ int sfs_read(int fd, void *buf, int n) {
         }
 
         if(read_block(cur_buf, current_block) != 0) {
-            fprintf(stderr, "%s\n", "Current block read err");
+            printf("current_block: %d, index_block: %d\n", current_block, index_block);
+            fprintf(stderr, "%s\n", "sfs_read2 Current block read err");
             return -1;
         }
         for(int i = 0; i < BLOCKSIZE; i++) {
@@ -521,7 +529,7 @@ int sfs_read(int fd, void *buf, int n) {
     }
 
     open_files[fd].read_index += count;
-    
+
     free(cur_FCB);
     free(cur_buf);
     free(indices);
@@ -590,7 +598,8 @@ int sfs_append(int fd, void *buf, int n) {
     char* cur_buf = (char*) malloc(BLOCKSIZE);
 
     if(read_block(cur_buf, current_block) != 0) {
-        fprintf(stderr, "%s\n", "Current block read err");
+        printf("index_addr: %d, current_block: %d, index_block: %d\n", index_addr, current_block, index_block);
+        fprintf(stderr, "%s\n", "sfs_append Current block read err");
         free(cur_FCB);
         free(indices);
         free(cur_buf);
@@ -640,7 +649,8 @@ int sfs_append(int fd, void *buf, int n) {
         write_block(indices, index_addr);
 
         if(read_block(cur_buf, current_block) != 0) {
-            fprintf(stderr, "%s\n", "Current block read err");
+             printf("current_block: %d, index_block: %d\n", current_block, index_block);
+            fprintf(stderr, "%s\n", "sfs_append2 Current block read err");
             free(cur_FCB);
             free(indices);
             free(cur_buf);
@@ -660,7 +670,7 @@ int sfs_append(int fd, void *buf, int n) {
     cur_FCB[FCB_block_index].file_size = size;
 
     if(write_block(cur_FCB, FCB_block) != 0) {
-        fprintf(stderr, "%s\n", "Current block read err");
+        fprintf(stderr, "%s\n", "Current block write err");
         free(cur_FCB);
         free(indices);
         free(cur_buf);

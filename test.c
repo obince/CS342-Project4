@@ -35,9 +35,9 @@ int main(int argc, char **argv)
     sfs_create ("file2.bin");
     sfs_create ("file3.bin");
 
-    fd[0] = sfs_open("file3.bin", MODE_APPEND);
+    fd[0] = sfs_open("file1.bin", MODE_APPEND);
     fd[1] = sfs_open("file2.bin", MODE_APPEND);
-    fd[2] = sfs_open("file1.bin", MODE_APPEND);
+    fd[2] = sfs_open("file3.bin", MODE_APPEND);
     int write_count = 0;
 
     for (i = 0; i < 1000; ++i) {
@@ -58,7 +58,7 @@ int main(int argc, char **argv)
     sfs_close(fd[0]);
     sfs_close(fd[1]);
 
-    fd[0] = sfs_open("file3.bin", MODE_READ);
+    fd[0] = sfs_open("file1.bin", MODE_READ);
     fd[1] = sfs_open("file2.bin", MODE_READ);
     size = sfs_getsize(fd[0]);
     for(int l = 0; l < 1024; ++l){
