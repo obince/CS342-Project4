@@ -18,9 +18,7 @@
 #define DIR_ENTRY_SIZE 128
 #define FCB_SIZE 128
 
-/**
-    FUNCTION DECLARATIONS
-**/
+// function declarations
 int find_zero_byte(uint8_t bitmap_byte);
 int find_available_block();
 int FCB_index_to_block(int FCB_index);
@@ -33,6 +31,7 @@ int vdisk_fd; // Global virtual disk file descriptor. Global within the library.
               // Any function in this file can use this.
               // Applications will not use  this directly. EYV
 
+// struct definitions
 struct OpenFile {
     char file_name[FILENAME];
     int used;
@@ -62,9 +61,9 @@ struct FCB {
     char dummy[FCB_SIZE - (sizeof(int) * 4)];
 };
 
+// global static open file table
 struct OpenFile open_files[16];
 // ========================================================
-
 
 // read block k from disk (virtual disk) into buffer block.
 // size of the block is BLOCKSIZE.
@@ -125,6 +124,7 @@ int create_format_vdisk (char *vdiskname, unsigned int m)
 
     sfs_mount(vdiskname);
 
+    // the super block initialization
     struct SuperBlock* sb = (struct SuperBlock*) malloc(sizeof(struct SuperBlock));
 
     sb->num_blocks = count;
@@ -137,6 +137,7 @@ int create_format_vdisk (char *vdiskname, unsigned int m)
         return -1;
     }
 
+    // initialize bitmap - first 13 bits are 1 (full), others are 0
     uint8_t* bitmap = (uint8_t *) malloc(sizeof(uint8_t) * BLOCKSIZE);
     for( int i = 0; i < BLOCKSIZE; ++i) {
         bitmap[i] = 0x00;
@@ -150,8 +151,8 @@ int create_format_vdisk (char *vdiskname, unsigned int m)
         return -1;
     }
 
+    // set current FCBs to NOTUSED and FCB_indices
     struct FCB* cur_FCB = (struct FCB*) malloc(sizeof(struct FCB) * 32);
-
     for(int i = 9; i <= 12; i++) {
         read_block(cur_FCB, i);
         for( int j = 0; j < 32; j++) {
@@ -182,6 +183,7 @@ int sfs_mount (char *vdiskname)
     if(vdisk_fd == -1)
         return -1;
 
+    // set open files to NOTUSED
     for( int i = 0; i < 16; i++) {
         open_files[i].used = NOTUSED;
     }
@@ -201,6 +203,7 @@ int sfs_umount ()
 //inş bitti
 int sfs_create(char *filename)
 {
+    // allocate directory and FCB buffers to read blocks
     void* dir_buffer = malloc(sizeof(char) * BLOCKSIZE);
     void* fcb_buffer = malloc(sizeof(char) * BLOCKSIZE);
     struct DirectoryEntry cur_dir_entry;
@@ -208,6 +211,7 @@ int sfs_create(char *filename)
     bool found = false;
     int i, j, k;
 
+    // read directory entries to find a NOTUSED one
     for(i = 5; i <= 8; ++i){
         read_block(dir_buffer, i);
         for(j = 0; j < 32; ++j){
@@ -226,10 +230,15 @@ int sfs_create(char *filename)
 
     if(!found){
         fprintf(stderr, "%s\n", "sfs_create not found error");
+        free(dir_buffer);
+        free(fcb_buffer);
         return -1;
     }
 
     found = false;
+
+    // read FCBs to find a NOTUSED one
+    // then, update selected FCB and directory entry
     for(k = 9; k <= 12; ++k) {
         read_block(fcb_buffer, k);
         for(int m = 0; m < 32; ++m){
@@ -240,6 +249,8 @@ int sfs_create(char *filename)
                 cur_fcb.index_table_addr = find_available_block();
 
                 if(cur_fcb.index_table_addr == -1) {
+                    free(dir_buffer);
+                    free(fcb_buffer);
                     return -1;
                 }
 
@@ -261,6 +272,8 @@ int sfs_create(char *filename)
 
     if(!found){
         fprintf(stderr, "%s\n", "sfs_create not found error");
+        free(dir_buffer);
+        free(fcb_buffer);
         return -1;
     }
 
@@ -269,18 +282,23 @@ int sfs_create(char *filename)
     return (0);
 }
 
-//inş doğrudur
+// find an available block from bitmap and manipulate the respective bit
 int find_available_block(){
+    // initialize the bitmap buffer
     uint8_t* bitmap_buf = (uint8_t*) malloc(BLOCKSIZE);
     int i, j, empty_block;
     bool found = false;
     int available_block_idx;
 
+    // read each bitmap block and find the first empty bit (ZERO bit)
     for(i = 1; i <= 4; ++i){
         read_block(bitmap_buf, i);
+
+        // read each byte, if not all 1s, find the first zero bit
         for( j = 0; j < BLOCKSIZE; ++j){
             uint8_t cur_byte = bitmap_buf[j];
             if (cur_byte != 0xFF){
+                // find the first zero bit
                 empty_block = find_zero_byte(cur_byte);
                 found = true;
 
@@ -292,14 +310,15 @@ int find_available_block(){
                     return -1;
                 }
 
+                // calculate the available block index from loop values and empty bit
                 available_block_idx = ((i - 1) * BLOCKSIZE) + (8 * j) + empty_block;
-
                 if(available_block_idx >= (sb->num_blocks - 1)) {
                     printf("No block available!!!\n");
                     free(sb);
                     return -1;
                 }
 
+                // rewrite the empty-bitted byte with the inversed bit
                 cur_byte = cur_byte | (/*(uint8_t)*/ 1 << /*(uint8_t)*/ (7 - empty_block));
                 bitmap_buf[j] = cur_byte;
                 write_block(bitmap_buf, i);
@@ -326,6 +345,7 @@ int find_available_block(){
     return available_block_idx;
 }
 
+// find the first zero bit in a byte
 int find_zero_byte(uint8_t bitmap_byte){
     bool zeros[8];
     for(int i = 0; i < 8; ++i){
@@ -344,12 +364,14 @@ int find_zero_byte(uint8_t bitmap_byte){
     return -1;
 }
 
+// open the file with the given name and mode
 int sfs_open(char *file, int mode)
 {
     bool found = false;
     int open_file_index;
     int i, j;
 
+    // if there are more than 16 open files, return -1 (ERR!)
     for( open_file_index = 0; open_file_index < 16; open_file_index++) {
         if(open_files[open_file_index].used == NOTUSED) {
             found = true;
@@ -363,6 +385,7 @@ int sfs_open(char *file, int mode)
     found = false;
     struct DirectoryEntry* cur_entry = (struct DirectoryEntry*) malloc(BLOCKSIZE);
 
+    // get the corresponding directory entry
     for(i = 5; i <= 8; i++) {
         read_block(cur_entry, i);
         for(j = 0; j < 32; j++) {
@@ -375,9 +398,13 @@ int sfs_open(char *file, int mode)
             break;
     }
 
-    if(!found)
+    if(!found){
+        free(cur_entry);
         return -1;
+    }
 
+    // get the corresponding FCB, then update open file entry
+    // with its FCB pointer (int), mode, used, read byte count
     int FCB_index = cur_entry[j].FCB_index;
 
     int FCB_block = FCB_index_to_block(FCB_index);
@@ -400,8 +427,9 @@ int sfs_open(char *file, int mode)
     return open_file_index;
 }
 
+// close the open file entry with the given fd
 int sfs_close(int fd) {
-
+    // update open file entry to NOTUSED
     if(open_files[fd].used == NOTUSED)
         return -1;
 
@@ -409,8 +437,10 @@ int sfs_close(int fd) {
     return (0);
 }
 
+// return the size of the opened file
 int sfs_getsize (int  fd)
 {
+    // get the respective FCB and return the file_size property
     int FCB_index = open_files[fd].FCB_index;
 
     int FCB_block = FCB_index_to_block(FCB_index);
@@ -432,11 +462,13 @@ int sfs_getsize (int  fd)
 int sfs_read(int fd, void *buf, int n) {
     int i = 0;
 
+    // if wrong format or the file is closed, throw err
     if(open_files[fd].used == NOTUSED || open_files[fd].mode == MODE_APPEND) {
         fprintf(stderr, "%s\n", "WRONG format read!");
         return -1;
     }
 
+    // get the respective open file entry, and from there get the FCB
     struct OpenFile cur_file = open_files[fd];
 
     int FCB_index = cur_file.FCB_index;
@@ -451,6 +483,8 @@ int sfs_read(int fd, void *buf, int n) {
         return -1;
     }
 
+    // from FCB, get the index block (table) and start reading
+    // the file from the read index property
     int size = cur_FCB[FCB_block_index].file_size;
     int index_addr = cur_FCB[FCB_block_index].index_table_addr;
 
@@ -458,6 +492,8 @@ int sfs_read(int fd, void *buf, int n) {
 
     if(read_block(indices, index_addr) != 0) {
         fprintf(stderr, "%s\n", "Index read err");
+        free(cur_FCB);
+        free(indices);
         return -1;
     }
 
@@ -466,10 +502,12 @@ int sfs_read(int fd, void *buf, int n) {
     int index_block = read_size / 4096;
     int offset = read_size % 4096;
 
+    // get the currently being read block from index table
     int current_block = indices[index_block];
-
     if(current_block == 0 || index_block >= 1024) {
         printf("END OF FILE!!!\n");
+        free(cur_FCB);
+        free(indices);
         return -1;
     }
 
@@ -484,9 +522,13 @@ int sfs_read(int fd, void *buf, int n) {
 
     char* cur_buf = (char*) malloc(BLOCKSIZE);
 
+    // read the remaining bytes from that block, n times or BLOCKSIZE - read_index % 4096  
     if(read_block(cur_buf, current_block) != 0) {
         printf("current_block: %d, index_block: %d\n", current_block, index_block);
         fprintf(stderr, "%s\n", "sfs_read 1 Current block read err");
+        free(cur_buf);
+        free(cur_FCB);
+        free(indices);
         return -1;
     }
 
@@ -497,6 +539,7 @@ int sfs_read(int fd, void *buf, int n) {
         count++;
     }
 
+    // read until read count is reached
     while(count != read_goal) {
 
         index_block++;
@@ -510,12 +553,18 @@ int sfs_read(int fd, void *buf, int n) {
         current_block = indices[index_block];
 
         if(current_block == 0) {
+            free(cur_buf);
+            free(cur_FCB);
+            free(indices);
             return -1;
         }
 
         if(read_block(cur_buf, current_block) != 0) {
             printf("current_block: %d, index_block: %d\n", current_block, index_block);
             fprintf(stderr, "%s\n", "sfs_read2 Current block read err");
+            free(cur_buf);
+            free(cur_FCB);
+            free(indices);
             return -1;
         }
         for(int i = 0; i < BLOCKSIZE; i++) {
@@ -536,20 +585,16 @@ int sfs_read(int fd, void *buf, int n) {
     return count;
 }
 
-//DEĞİŞECEKLER
-//EĞER YENİ BLOCK KULLANILIRSA BİTMAP VE INDEX_NODE DEĞİŞECEK
-//SIZE ARTACAK
-//BLOCKLARA N KADAR BİŞEY YAZILACAK.
 int sfs_append(int fd, void *buf, int n) {
-
     int i;
 
+    // if wrong format or the file is closed, throw err
     if(open_files[fd].used == NOTUSED || open_files[fd].mode == MODE_READ) {
         fprintf(stderr, "%s\n", "WRONG format append!");
         return -1;
     }
 
-
+    // get the open ile entry, and FCB
     struct OpenFile cur_file = open_files[fd];
 
     int FCB_index = cur_file.FCB_index;
@@ -568,6 +613,7 @@ int sfs_append(int fd, void *buf, int n) {
     int size = cur_FCB[FCB_block_index].file_size;
     int index_addr = cur_FCB[FCB_block_index].index_table_addr;
 
+    // get the index table
     int* indices = (int*) malloc(sizeof(int) * 1024);
 
     if(read_block(indices, index_addr) != 0) {
@@ -582,6 +628,7 @@ int sfs_append(int fd, void *buf, int n) {
 
     int current_block = indices[index_block];
 
+    // if all blocks have been used, allocate a new block
     if(current_block == 0) {
         current_block = find_available_block();
 
@@ -605,17 +652,15 @@ int sfs_append(int fd, void *buf, int n) {
         free(cur_buf);
         return -1;
     }
-    //offset + n <= 4096 direk offsetten yaz
-    //offset + n > 4096
+    //
     char* user_buffer = (char*) buf;
     int count = 0;
 
+    //if, offset + n <= 4096, write from directly the offset
     for( i = offset; (i < (n + offset)) && (i < BLOCKSIZE); i++) {
         cur_buf[i] = user_buffer[count];
         count++;
     }
-
-    //size += count;
 
     if(write_block(cur_buf, current_block) != 0) {
         fprintf(stderr, "%s\n", "Current block write err");
@@ -625,6 +670,7 @@ int sfs_append(int fd, void *buf, int n) {
         return -1;
     }
 
+    //if, offset + n > 4096, write till remaining bytes are written
     while(count != n) {
         current_block = find_available_block();
 
@@ -665,6 +711,7 @@ int sfs_append(int fd, void *buf, int n) {
         }
     }
 
+    // increase the filesize in the FCB
     size += count;
 
     cur_FCB[FCB_block_index].file_size = size;
@@ -683,13 +730,7 @@ int sfs_append(int fd, void *buf, int n) {
     return count;
 }
 
-// TODO
-// index_tableın olduğu block silinecek
-// index table ın her entrysinin olduğu block silenecek
-// bu silenenler silinmeden önce 0 olcak
-// bitmap update edilecek
 int sfs_delete(char *filename) {
-
     int i, j;
     bool found = false;
 
@@ -713,9 +754,12 @@ int sfs_delete(char *filename) {
 
     if(!found) {
         printf("sfs_delete, filename DNE!\n");
+        free(indices);
+        free(dir_buffer);
         return -1;
     }
 
+    // get the FCB
     int FCB_index = cur_dir_entry.FCB_index;
 
     int FCB_block = FCB_index_to_block(FCB_index);
@@ -725,6 +769,9 @@ int sfs_delete(char *filename) {
 
     if(read_block(cur_FCB, FCB_block) != 0) {
         fprintf(stderr, "%s\n", "Block read err");
+        free(indices);
+        free(dir_buffer);
+        free(cur_FCB);
         return -1;
     }
 
@@ -732,31 +779,46 @@ int sfs_delete(char *filename) {
 
     if(read_block(indices, index_table_addr) != 0) {
         fprintf(stderr, "%s\n", "Index block read err sfs_del");
+        free(dir_buffer);
+        free(indices);
+        free(cur_FCB);
         return -1;
     }
 
+    // deallocate all allocated blocks in the index table for the file
     for(int k = 0; k < (BLOCKSIZE / sizeof(int)); k++) {
         if(indices[k] == 0)
             break;
         delete_block(indices[k]);
     }
 
+    // deallocate the index table for the file
     delete_block(index_table_addr);
 
+    // update FCB by setting used to NOTUSED, file_size to 0, index_table_addr to 0 
     cur_FCB[FCB_block_index].used = NOTUSED;
     cur_FCB[FCB_block_index].index_table_addr = 0;
     cur_FCB[FCB_block_index].file_size = 0;
+
+    // set the dir_entry to NOTUSED
     cur_dir_entry.used = NOTUSED;
 
     ((struct DirectoryEntry*) dir_buffer)[j] = cur_dir_entry;
 
+    // update the directory entry and FCB by rewriting
     if(write_block(dir_buffer, i) != 0) {
         fprintf(stderr, "%s\n", "Directory block write err sfs_del");
+        free(dir_buffer);
+        free(indices);
+        free(cur_FCB);
         return -1;
     }
 
     if(write_block(cur_FCB, FCB_block) != 0) {
         fprintf(stderr, "%s\n", "FCB block write err sfs_del");
+        free(dir_buffer);
+        free(indices);
+        free(cur_FCB);
         return -1;
     }
 
@@ -767,6 +829,7 @@ int sfs_delete(char *filename) {
     return (0);
 }
 
+// delete the given block by setting all bits to 0 and updating the bitmap value
 int delete_block(int block_number) {
     char* cur_buf = (char*) malloc(BLOCKSIZE);
     uint8_t* bit_map_buf = (uint8_t*) malloc(BLOCKSIZE);
@@ -804,7 +867,7 @@ int delete_block(int block_number) {
     return 0;
 }
 
-// DOUBLE CHECK
+// invert the 1 bit in bitmap to 0 in the cur_byte at bit_map_offset
 uint8_t deleted_result( uint8_t cur_byte, int bit_map_offset) {
     uint8_t num = ((uint8_t) 1 << (7 - bit_map_offset));
     num = num ^ 0xFF;
@@ -812,11 +875,8 @@ uint8_t deleted_result( uint8_t cur_byte, int bit_map_offset) {
     return cur_byte;
 }
 
+// convert FCB_index to block
 int FCB_index_to_block(int FCB_index) {
-
     int FCB_block = (FCB_index / 32) + 9;
-
     return FCB_block;
-
 }
-
