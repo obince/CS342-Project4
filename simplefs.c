@@ -126,7 +126,10 @@ int create_format_vdisk (char *vdiskname, unsigned int m)
 
     struct SuperBlock* sb = (struct SuperBlock*) malloc(sizeof(struct SuperBlock));
 
-    sb -> num_blocks = count;
+    sb->num_blocks = count;
+    for(int o = 0; o < BLOCKSIZE - sizeof(int); ++o){
+        sb->dummy[o] = 0;
+    }
 
     if(write_block(sb, 0) != 0){
         fprintf(stderr, "%s\n", "Superblock write err");
@@ -295,7 +298,7 @@ int find_available_block(){
                     return -1;
                 }
 
-                cur_byte = cur_byte | (1 << (7 - empty_block));
+                cur_byte = cur_byte | (/*(uint8_t)*/ 1 << /*(uint8_t)*/ (7 - empty_block));
                 bitmap_buf[j] = cur_byte;
                 write_block(bitmap_buf, i);
                 free(sb);
@@ -550,6 +553,7 @@ int sfs_append(int fd, void *buf, int n) {
 
     if(read_block(cur_FCB, FCB_block) != 0) {
         fprintf(stderr, "%s\n", "Block read err");
+        free(cur_FCB);
         return -1;
     }
 
@@ -560,6 +564,8 @@ int sfs_append(int fd, void *buf, int n) {
 
     if(read_block(indices, index_addr) != 0) {
         fprintf(stderr, "%s\n", "Index read err");
+        free(cur_FCB);
+        free(indices);
         return -1;
     }
 
@@ -572,6 +578,8 @@ int sfs_append(int fd, void *buf, int n) {
         current_block = find_available_block();
 
         if(current_block == -1) {
+            free(cur_FCB);
+            free(indices);
             return -1;
         }
 
@@ -583,6 +591,9 @@ int sfs_append(int fd, void *buf, int n) {
 
     if(read_block(cur_buf, current_block) != 0) {
         fprintf(stderr, "%s\n", "Current block read err");
+        free(cur_FCB);
+        free(indices);
+        free(cur_buf);
         return -1;
     }
     //offset + n <= 4096 direk offsetten yaz
@@ -599,6 +610,9 @@ int sfs_append(int fd, void *buf, int n) {
 
     if(write_block(cur_buf, current_block) != 0) {
         fprintf(stderr, "%s\n", "Current block write err");
+        free(cur_FCB);
+        free(indices);
+        free(cur_buf);
         return -1;
     }
 
@@ -606,6 +620,9 @@ int sfs_append(int fd, void *buf, int n) {
         current_block = find_available_block();
 
         if(current_block == -1) {
+            free(cur_FCB);
+            free(indices);
+            free(cur_buf);
             return -1;
         }
 
@@ -613,6 +630,9 @@ int sfs_append(int fd, void *buf, int n) {
 
         if(index_block >= 1024) {
             printf("File size limit is reached!!\n");
+            free(cur_FCB);
+            free(indices);
+            free(cur_buf);
             return count;
         }
 
@@ -621,6 +641,9 @@ int sfs_append(int fd, void *buf, int n) {
 
         if(read_block(cur_buf, current_block) != 0) {
             fprintf(stderr, "%s\n", "Current block read err");
+            free(cur_FCB);
+            free(indices);
+            free(cur_buf);
             return -1;
         }
         for(int i = 0; i < BLOCKSIZE; i++) {
@@ -638,6 +661,9 @@ int sfs_append(int fd, void *buf, int n) {
 
     if(write_block(cur_FCB, FCB_block) != 0) {
         fprintf(stderr, "%s\n", "Current block read err");
+        free(cur_FCB);
+        free(indices);
+        free(cur_buf);
         return -1;
     }
 
